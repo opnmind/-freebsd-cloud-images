@@ -62,9 +62,9 @@ function build {
 
     curl -L ${BASE_URL}/base.txz | tar vxf - -C /mnt
     curl -L ${BASE_URL}/kernel.txz | tar vxf - -C /mnt
-    cp skel/dot.zshrc /usr/share/skel/dot.zshrc 
-    cp skel/dot.p10k.zsh /usr/share/skel/dot.p10k.zsh
-    chown root:wheel /usr/share/skel/dot.*
+    cp skel/dot.zshrc /mnt/usr/share/skel/dot.zshrc 
+    cp skel/dot.p10k.zsh /mnt/usr/share/skel/dot.p10k.zsh
+    chown root:wheel /mnt/usr/share/skel/dot.*
 
     echo "
 export ASSUME_ALWAYS_YES=YES
@@ -114,7 +114,7 @@ touch /etc/rc.conf
     echo 'qemu_guest_agent_enable="YES"' >> /mnt/etc/rc.conf
     echo 'qemu_guest_agent_flags="-d -v -l /var/log/qemu-ga.log"' >> /mnt/etc/rc.conf
     
-    sed "s|/bin/tcsh|/usr/local/bin/zsh|g" /mnt/usr/local/etc/cloud/cloud.cfg
+    sed -i '' "s|/bin/tcsh|/usr/local/bin/zsh|g" /mnt/usr/local/etc/cloud/cloud.cfg
 
     echo "/etc/rc.conf"
     echo "***"
