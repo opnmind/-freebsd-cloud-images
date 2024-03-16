@@ -3,7 +3,7 @@ set -eux
 
 VERSION="${1:-14.0}"
 ROOTFS="${2:-ufs}" # ufs or zfs
-ZROOT=zbuildroot
+ZROOT=zroot
 RAW_IMAGE=final.raw
 CHROOT_PATH=/mnt
 
@@ -28,6 +28,9 @@ function create_disk {
     cp /boot/loader.efi $CHROOT_PATH/EFI/BOOT/BOOTX64.efi
     umount $CHROOT_PATH
 
+    if [ $(zpool list | grep $ZROOT) ]; then
+	ZROOT=zfsroot
+    fi
 
     if [ ${ROOTFS} = "zfs" ]; then
         zpool create -o altroot=$CHROOT_PATH $ZROOT ${md_dev}p4
