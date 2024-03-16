@@ -1,38 +1,22 @@
 #!/usr/bin/env bash
-version="${1:-14.0}"
-debug=$2
-install_media="${install_media:-http}"
-
 set -eux
-root_fs="${3:-ufs}"  # ufs or zfs
+
+version="${1:-14.0}"
+root_fs="${2:-ufs}" # ufs or zfs
+debug=${3:-false}
+
+install_media="${install_media:-http}"
 zroot_name=zbuildroot
 raw_file=final.raw
 
-function build {
-    VERSION=$1
-    BASE_URL="http://ftp5.de.freebsd.org/freebsd/snapshots/amd64/${VERSION}-STABLE"
-    ALT_BASE_URL="http://ftp5.de.freebsd.org/freebsd/snapshots/amd64/${VERSION}-CURRENT"
-    ARCHIVE_BASE_URL="http://ftp-archive.freebsd.org/pub/FreeBSD-Archive/old-releases/amd64/${VERSION}-RELEASE"
 
-    if ! curl --fail --silent -L $BASE_URL; then
-        BASE_URL=$ALT_BASE_URL
-	if ! curl --fail --silent -L $BASE_URL; then
-	    BASE_URL=$ARCHIVE_BASE_URL
-	    if ! curl --fail --silent -L $BASE_URL; then
-		echo "Version ${VERSION} not found ... abort!"
-		exit 1;
-            fi
-	fi
-    fi
-    
-
+function create_disk {
     if [ ${root_fs} = "zfs" ]; then
         gptboot=/boot/gptzfsboot
     else
         gptboot=/boot/gptboot
     fi
 
-    #dd if=/dev/zero of=$raw_file bs=1048576 count=3000
     dd if=/dev/zero of=$raw_file bs=1M count=6144
     md_dev=$(mdconfig -a -t vnode -f $raw_file)
     gpart create -s gpt ${md_dev}
@@ -60,8 +44,68 @@ function build {
         mount /dev/${md_dev}p4 /mnt
     fi
 
+}
+
+function close_disk {
+    if [ ${root_fs} = "zfs" ]; then
+        echo 'zfs_load="YES"' >> /mnt/boot/loader.conf
+        echo "vfs.root.mountfrom=\"zfs:${zroot_name}/ROOT/default\"" >> /mnt/boot/loader.conf
+        echo 'zfs_enable="YES"' >> /mnt/etc/rc.conf
+
+        echo 'growpart:
+   mode: auto
+   devices:
+      - /dev/vtbd0p4
+      - /
+' >> /mnt/usr/local/etc/cloud/cloud.cfg
+
+        ls /mnt
+        ls /mnt/sbin
+        ls /mnt/sbin/init
+        zfs umount /mnt
+        zfs umount /mnt/$zroot_name
+        zpool export $zroot_name
+    else
+        umount /dev/${md_dev}p4
+    fi
+    mdconfig -du ${md_dev}
+}
+
+function install_base_layer {
     curl -L ${BASE_URL}/base.txz | tar vxf - -C /mnt
     curl -L ${BASE_URL}/kernel.txz | tar vxf - -C /mnt
+
+    cp /etc/resolv.conf /mnt/etc/resolv.conf
+    mount -t devfs devfs /mnt/dev    
+    chroot /mnt /bin/sh
+    pkg install -y ca_root_nss
+    exit
+}
+
+function build {
+    VERSION=$version
+    BASE_URL="http://ftp5.de.freebsd.org/freebsd/snapshots/amd64/${VERSION}-STABLE"
+    ALT_BASE_URL="http://ftp5.de.freebsd.org/freebsd/snapshots/amd64/${VERSION}-CURRENT"
+    ARCHIVE_BASE_URL="http://ftp-archive.freebsd.org/pub/FreeBSD-Archive/old-releases/amd64/${VERSION}-RELEASE"
+
+    if ! curl --fail --silent -L $BASE_URL; then
+        BASE_URL=$ALT_BASE_URL
+	if ! curl --fail --silent -L $BASE_URL; then
+	    BASE_URL=$ARCHIVE_BASE_URL
+	    if ! curl --fail --silent -L $BASE_URL; then
+		echo "Version ${VERSION} not found ... abort!"
+		exit 1;
+            fi
+	fi
+    fi
+    
+    # call function create disk
+    create_disk
+
+    # extract basics and install some packages
+    install_base_layer
+    exit
+
     cp skel/dot.zshrc /mnt/usr/share/skel/dot.zshrc 
     cp skel/dot.p10k.zsh /mnt/usr/share/skel/dot.p10k.zsh
     chown root:wheel /mnt/usr/share/skel/dot.*
@@ -121,30 +165,9 @@ touch /etc/rc.conf
     cat /mnt/etc/rc.conf
     echo "***"
 
-    if [ ${root_fs} = "zfs" ]; then
-        echo 'zfs_load="YES"' >> /mnt/boot/loader.conf
-        echo "vfs.root.mountfrom=\"zfs:${zroot_name}/ROOT/default\"" >> /mnt/boot/loader.conf
-        echo 'zfs_enable="YES"' >> /mnt/etc/rc.conf
 
-        echo 'growpart:
-   mode: auto
-   devices:
-      - /dev/vtbd0p4
-      - /
-' >> /mnt/usr/local/etc/cloud/cloud.cfg
-    fi
-
-    if [ ${root_fs} = "zfs" ]; then
-        ls /mnt
-        ls /mnt/sbin
-        ls /mnt/sbin/init
-        zfs umount /mnt
-        zfs umount /mnt/$zroot_name
-        zpool export $zroot_name
-    else
-        umount /dev/${md_dev}p4
-    fi
-    mdconfig -du ${md_dev}
+    # call post hook for disk setup
+    close_disk
 }
 
 build $version
